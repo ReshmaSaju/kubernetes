@@ -1,0 +1,64 @@
+
+pipeline {
+   tools {
+        maven 'Maven3'
+    }
+    agent any
+    environment {
+        registry = "965125100596.dkr.ecr.us-east-2.amazonaws.com/k8s_demo_project"
+         // AWS_CREDENTIALS = credentials('AWS')
+         AWS_REGION = 'us-east-2'
+         // AWS_ACCESS_KEY_ID = crendentials('AKIA6BNPQKQ2DXBYMZND')
+         // AWS_SECRET_ACCESS_KEY = credentials('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')
+         
+    }     
+   
+    stages {
+        stage('Cloning Git') {
+            steps {
+                checkout([$class: 'GitSCM', branches: [[name: '*/main']], doGenerateSubmoduleConfigurations: false, extensions: [], submoduleCfg: [], userRemoteConfigs: [[credentialsId: '', url: 'https://github.com/ReshmaSaju/EKS-CICD.git']]])     
+            }
+        }
+      stage ('Build') {
+          steps {
+            sh 'mvn clean install'           
+            }
+      }
+    // Building Docker images
+    stage('Building image') {
+      steps{
+        script {
+          dockerImage = docker.build registry 
+        }
+      }
+    }
+   
+    // Uploading Docker images into AWS ECR
+    stage('Pushing to ECR') {
+     steps{  
+         script {
+               
+               withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+                       
+                        sh "aws ecr get-login-password --region ${AWS_REGION} | docker login --username AWS --password-stdin ${registry}"
+                        sh 'docker push 965125100596.dkr.ecr.us-east-2.amazonaws.com/k8s_demo_project'
+                    }
+                            
+         }
+        }
+      }
+
+       stage('K8S Deploy') {
+         steps{
+            script {
+               withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'AWS']]) {
+               withKubeConfig(credentialsId: 'newk8s', serverUrl: 'https://272E2E68CE3DB1B6941BAB2D743FBCFD.gr7.us-east-2.eks.amazonaws.com') {
+                  sh 'kubectl apply -f  eks-deploy-k8s.yaml'
+                  }
+               }
+               }
+            }        
+         }
+    }
+}
+
